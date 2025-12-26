@@ -1,4 +1,86 @@
-import jwt from "@tsndr/cloudflare-worker-jwt";
+/* =======================
+   JWT UTILS (Cloudflare)
+======================= */
+
+const encoder = new TextEncoder();
+
+async function signJWT(payload, secret, expiresInSeconds = 604800) {
+  const header = { alg: "HS256", typ: "JWT" };
+  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+
+  const base64 = obj =>
+    btoa(JSON.stringify(obj))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+
+  const headerPart = base64(header);
+  const payloadPart = base64({ ...payload, exp });
+
+  const data = `${headerPart}.${payloadPart}`;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(data)
+  );
+
+  const signaturePart = btoa(
+    String.fromCharCode(...new Uint8Array(signature))
+  )
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+
+  return `${data}.${signaturePart}`;
+}
+
+async function verifyJWT(token, secret) {
+  try {
+    const [header, payload, signature] = token.split(".");
+    const data = `${header}.${payload}`;
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const sig = Uint8Array.from(
+      atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
+      c => c.charCodeAt(0)
+    );
+
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      sig,
+      encoder.encode(data)
+    );
+
+    if (!valid) return null;
+
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+    );
+
+    if (decoded.exp < Math.floor(Date.now() / 1000)) return null;
+
+    return decoded;
+  } catch {
+    return null;
+  }
+}
 
 export default {
   async fetch(request, env) {
@@ -166,11 +248,11 @@ export default {
       const isAdmin = member.roles?.includes(env.DISCORD_ADMIN_ROLE_ID);
       if (!isAdmin) return new Response("Forbidden", { status: 403 });
 
-      const jwtToken = await jwt.sign(
-        { id: user.id, username: user.username, avatar: user.avatar },
-        env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
+    const jwtToken = await signJWT(
+  { id: user.id, username: user.username, avatar: user.avatar },
+  env.JWT_SECRET
+);
+
 
       return Response.redirect(`${env.FRONTEND_URL}/dashboard?token=${jwtToken}`, 302);
     }
