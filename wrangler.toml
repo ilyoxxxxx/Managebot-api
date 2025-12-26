@@ -1,0 +1,20 @@
+name = "discord-status-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+kv_namespaces = [
+  { binding = "KV", id = "629de333211c4f6eb39358cdd24f7bc0" }
+]
+
+[vars]
+SECRET = "ManageBOT@@@"
+JWT_SECRET = "ManageBOT@@@"
+
+DISCORD_CLIENT_ID = "1437128555384537138"
+DISCORD_CLIENT_SECRET = "XXXX"
+DISCORD_REDIRECT_URI = "https://managebot.ilyesquibroute93.workers.dev/auth/callback"
+
+DISCORD_GUILD_ID = "1425562098775097356"
+DISCORD_ADMIN_ROLE_ID = "1454169178008453191"
+
+FRONTEND_URL = "https://status.manage-bot.fr"
