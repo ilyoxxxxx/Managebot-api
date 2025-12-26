@@ -236,6 +236,77 @@ export default {
   }), { headers });
 }
 
+/* =======================
+   AUTH – DISCORD LOGIN
+======================= */
+if (request.method === "GET" && url.pathname === "/auth/login") {
+  const redirect =
+    "https://discord.com/oauth2/authorize" +
+    `?client_id=${env.DISCORD_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(env.DISCORD_REDIRECT_URI)}` +
+    `&response_type=code` +
+    `&scope=identify guilds.members.read`;
+
+  return Response.redirect(redirect, 302);
+}
+/* =======================
+   AUTH – DISCORD CALLBACK
+======================= */
+if (request.method === "GET" && url.pathname === "/auth/callback") {
+  const code = url.searchParams.get("code");
+  if (!code) {
+    return new Response("Missing code", { status: 400 });
+  }
+
+  // 🔄 échange code → access_token
+  const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.DISCORD_CLIENT_ID,
+      client_secret: env.DISCORD_CLIENT_SECRET,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: env.DISCORD_REDIRECT_URI
+    })
+  });
+
+  const token = await tokenRes.json();
+
+  // 👤 user Discord
+  const userRes = await fetch("https://discord.com/api/users/@me", {
+    headers: { Authorization: `Bearer ${token.access_token}` }
+  });
+  const user = await userRes.json();
+
+  // 🔒 vérification admin serveur manage-support
+  const memberRes = await fetch(
+    `https://discord.com/api/users/@me/guilds/${env.DISCORD_GUILD_ID}/member`,
+    { headers: { Authorization: `Bearer ${token.access_token}` } }
+  );
+  const member = await memberRes.json();
+
+  const isAdmin = member?.roles?.includes(env.DISCORD_ADMIN_ROLE_ID);
+  if (!isAdmin) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  // 🔐 génération JWT
+  const jwt = await signJWT(
+    {
+      id: user.id,
+      username: user.username,
+      avatar: user.avatar
+    },
+    env.JWT_SECRET
+  );
+
+  // 🔁 redirection vers le dashboard
+  return Response.redirect(
+    `${env.FRONTEND_URL}/dashboard.html?token=${jwt}`,
+    302
+  );
+}
 
     /* =======================
        INCIDENTS
@@ -317,6 +388,7 @@ if (request.method === "POST" && url.pathname === "/auth/logout") {
     { headers }
   );
 }
+
 
     /* =======================
        GRAPH DATA
