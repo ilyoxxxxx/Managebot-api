@@ -10,11 +10,12 @@ kv_namespaces = [
 SECRET = "ManageBOT@@@"
 JWT_SECRET = "ManageBOT@@@"
 
-DISCORD_CLIENT_ID = "1437128555384537138"
-DISCORD_CLIENT_SECRET = "XXXX"
-DISCORD_REDIRECT_URI = "https://managebot.ilyesquibroute93.workers.dev/auth/callback"
+DISCORD_CLIENT_ID = "1431421654038351942"
+DISCORD_CLIENT_SECRET = "lfXfmDQTykuwB-0ioq60rR15juMLabgG"
+DISCORD_REDIRECT_URI = "https://managebot.gentle-scene-fd14.workers.dev/auth/callback"
 
 DISCORD_GUILD_ID = "1425562098775097356"
 DISCORD_ADMIN_ROLE_ID = "1454169178008453191"
 
 FRONTEND_URL = "https://status.manage-bot.fr"
+
