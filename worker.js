@@ -104,14 +104,15 @@ export default {
       req.headers.get("Authorization")?.replace("Bearer ", "");
 
     const requireAdmin = async req => {
-      const token = getJWT(req);
-      if (!token) return null;
+  const token = getJWT(req);
+  if (!token) return null;
 
-      const valid = await jwt.verify(token, env.JWT_SECRET);
-      if (!valid) return null;
+  const payload = await verifyJWT(token, env.JWT_SECRET);
+  if (!payload) return null;
 
-      return jwt.decode(token).payload;
-    };
+  return payload;
+};
+
 
     const dayKey = () => new Date().toISOString().slice(0, 10);
     const monthKey = () => new Date().toISOString().slice(0, 7);
@@ -173,89 +174,68 @@ export default {
        GET /stats
     ======================= */
     if (request.method === "GET" && url.pathname === "/stats") {
-      const raw = await env.KV.get("stats");
-      if (!raw) {
-        return new Response(JSON.stringify({
-          status: "offline",
-          servers: 0,
-          users: 0,
-          shards: 0,
-          uptime: 0,
-          timestamp: now
-        }), { headers });
-      }
+  const raw = await env.KV.get("stats");
+  if (!raw) {
+    return new Response(JSON.stringify({
+      status: "offline",
+      servers: 0,
+      users: 0,
+      shards: 0,
+      uptime: 0,
+      timestamp: now
+    }), { headers });
+  }
 
-      const stats = JSON.parse(raw);
-      const isOnline = now - stats.lastHeartbeat < 90_000;
-      let status = isOnline ? "online" : "offline";
-      if (stats.forcedStatus) status = stats.forcedStatus;
+  const stats = JSON.parse(raw);
+  const OFFLINE_AFTER = 90_000;
+  const isOnline = now - stats.lastHeartbeat < OFFLINE_AFTER;
 
-      const uptime = stats.startedAt ? (now - stats.startedAt) / 3600000 : 0;
+  let status = isOnline ? "online" : "offline";
+  if (stats.forcedStatus) status = stats.forcedStatus;
 
-      return new Response(JSON.stringify({
-        status,
-        servers: stats.servers,
-        users: stats.users,
-        shards: stats.shards,
-        uptime: Number(uptime.toFixed(2)),
-        timestamp: now
-      }), { headers });
-    }
+  /* =======================
+     AUTO INCIDENT
+  ======================= */
+  const incidents = JSON.parse(await env.KV.get("incidents") || "[]");
+  const activeIncident = incidents.find(
+    i => i.auto === true && i.end === null
+  );
 
-    /* =======================
-       OAUTH DISCORD
-    ======================= */
+  // 🔴 Bot offline → créer incident
+  if (!isOnline && !activeIncident) {
+    incidents.unshift({
+      id: crypto.randomUUID(),
+      title: "Bot hors ligne",
+      description: "Le bot ne répond plus au heartbeat.",
+      severity: "critical",
+      start: now,
+      end: null,
+      auto: true
+    });
 
-    if (request.method === "GET" && url.pathname === "/auth/login") {
-      const redirect =
-        "https://discord.com/oauth2/authorize" +
-        `?client_id=${env.DISCORD_CLIENT_ID}` +
-        `&redirect_uri=${encodeURIComponent(env.DISCORD_REDIRECT_URI)}` +
-        `&response_type=code&scope=identify guilds.members.read`;
+    await env.KV.put("incidents", JSON.stringify(incidents));
+  }
 
-      return Response.redirect(redirect, 302);
-    }
+  // 🟢 Bot revenu → fermer incident
+  if (isOnline && activeIncident) {
+    activeIncident.end = now;
+    await env.KV.put("incidents", JSON.stringify(incidents));
+  }
 
-    if (request.method === "GET" && url.pathname === "/auth/callback") {
-      const code = url.searchParams.get("code");
-      if (!code) return new Response("Missing code", { status: 400 });
+  const uptime = stats.startedAt
+    ? (now - stats.startedAt) / 3600000
+    : 0;
 
-      const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: env.DISCORD_CLIENT_ID,
-          client_secret: env.DISCORD_CLIENT_SECRET,
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: env.DISCORD_REDIRECT_URI
-        })
-      });
+  return new Response(JSON.stringify({
+    status,
+    servers: stats.servers,
+    users: stats.users,
+    shards: stats.shards,
+    uptime: Number(uptime.toFixed(2)),
+    timestamp: now
+  }), { headers });
+}
 
-      const token = await tokenRes.json();
-
-      const userRes = await fetch("https://discord.com/api/users/@me", {
-        headers: { Authorization: `Bearer ${token.access_token}` }
-      });
-      const user = await userRes.json();
-
-      const memberRes = await fetch(
-        `https://discord.com/api/users/@me/guilds/${env.DISCORD_GUILD_ID}/member`,
-        { headers: { Authorization: `Bearer ${token.access_token}` } }
-      );
-      const member = await memberRes.json();
-
-      const isAdmin = member.roles?.includes(env.DISCORD_ADMIN_ROLE_ID);
-      if (!isAdmin) return new Response("Forbidden", { status: 403 });
-
-    const jwtToken = await signJWT(
-  { id: user.id, username: user.username, avatar: user.avatar },
-  env.JWT_SECRET
-);
-
-
-      return Response.redirect(`${env.FRONTEND_URL}/dashboard?token=${jwtToken}`, 302);
-    }
 
     /* =======================
        INCIDENTS
@@ -298,6 +278,45 @@ export default {
       await env.KV.put("incidents", JSON.stringify(incidents));
       return new Response(JSON.stringify({ success: true }), { headers });
     }
+/* =======================
+   AUTH – ME
+   GET /me
+======================= */
+
+if (request.method === "GET" && url.pathname === "/me") {
+  const user = await requireAdmin(request);
+  if (!user) {
+    return new Response(
+      JSON.stringify({ authenticated: false }),
+      { status: 401, headers }
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        avatarUrl: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+          : null
+      }
+    }),
+    { headers }
+  );
+}
+/* =======================
+   AUTH – LOGOUT
+======================= */
+
+if (request.method === "POST" && url.pathname === "/auth/logout") {
+  return new Response(
+    JSON.stringify({ success: true }),
+    { headers }
+  );
+}
 
     /* =======================
        GRAPH DATA
