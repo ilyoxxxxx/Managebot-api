@@ -15,7 +15,8 @@ DISCORD_CLIENT_SECRET = "lfXfmDQTykuwB-0ioq60rR15juMLabgG"
 DISCORD_REDIRECT_URI = "https://managebot.gentle-scene-fd14.workers.dev/auth/callback"
 
 DISCORD_GUILD_ID = "1425562098775097356"
-DISCORD_ADMIN_ROLE_ID = "1454169178008453191"
+DISCORD_ADMIN_ROLE_ID = "1453882517659586783"
 
 FRONTEND_URL = "https://status.manage-bot.fr"
+
 
